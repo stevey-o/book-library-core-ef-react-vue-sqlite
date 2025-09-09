@@ -1,0 +1,32 @@
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.db
+library.db
+*.log
+.vscode/
+
+# EF migrations snapshot is fine to commit (keep Migrations folder)
+# but ignore the actual sqlite DB files
+*.sqlite
+*.db-journal
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db

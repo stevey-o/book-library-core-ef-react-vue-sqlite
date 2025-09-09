@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Book Library — No Build</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Vuetify CSS -->
+<link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@mdi/font@6.x/css/materialdesignicons.min.css" rel="stylesheet">
+<style>
+  body { font-family: Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; }
+  body, .v-application {
+    background-color: #acacaf !important;
+  }
+  #app { min-height: 100vh; }
+  .actions-col { white-space: nowrap; }
+  .main-container { max-width: 1100px; margin: 24px auto; }
+</style>
+</head>
+<body>
+<div id="app">
+  <v-app>
+    <v-app-bar app dense color="primary" dark>
+      <v-toolbar-title>Book Library</v-toolbar-title>
+      <v-spacer></v-spacer>
+      <v-btn text @click="view='list'">Books</v-btn>
+      <v-btn text @click="openForm()">Add Book</v-btn>
+      <v-btn text @click="showStats = true">Stats</v-btn>
+    </v-app-bar>
+
+    <v-main>
+      <v-container class="main-container">
+
+        <v-alert type="error" v-if="globalError" dense outlined class="mb-4">
+          {{ globalError }}
+        </v-alert>
+
+        <v-progress-linear v-if="loading" indeterminate class="mb-4"></v-progress-linear>
+
+        <!-- Book List -->
+        <v-card v-if="view === 'list'" class="pa-4" elevation="12" light>
+          <v-card-title>
+            <span class="text-h6">All Books</span>
+            <v-spacer></v-spacer>
+            <v-text-field
+              v-model="filter"
+              append-icon="mdi-magnify"
+              label="Filter by title/author/genre"
+              single-line
+              hide-details
+              dense
+              class="mr-4"
+            ></v-text-field>
+          </v-card-title>
+          <v-card-text>
+            <v-simple-table v-if="!loading && filteredBooks.length > 0">
+              <template v-slot:default>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Author</th>
+                  <th>Genre</th>
+                  <th>Published</th>
+                  <th>Rating</th>
+                  <th class="actions-col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="bk in filteredBooks" :key="bk && bk.id" v-if="bk">
+                  <td>{{ bk.title }}</td>
+                  <td>{{ bk.author }}</td>
+                  <td>{{ bk.genre || '-' }}</td>
+                  <td>{{ formatDate(bk.publishedDate) }}</td>
+                  <td>{{ bk.rating }}</td>
+                  <td class="actions-col">
+                    <v-btn small icon @click="openForm(bk)"><v-icon>mdi-pencil</v-icon></v-btn>
+                    <v-btn small icon color="red" @click="confirmDelete(bk.id)"><v-icon>mdi-delete</v-icon></v-btn>
+                  </td>
+                </tr>
+              </tbody>
+              </template>
+            </v-simple-table>
+            <div v-else-if="!loading">No books yet. Click <strong>Add Book</strong> to create one.</div>
+          </v-card-text>
+        </v-card>
+
+        <!-- Stats Dialog -->
+        <v-dialog v-model="showStats" max-width="800px" light>
+          <v-card class="pa-4" elevation="12" light>
+            <v-card-title>
+              <span class="text-h6">Books per Genre</span>
+              <v-spacer></v-spacer>
+              <v-btn icon @click="showStats = false"><v-icon>mdi-close</v-icon></v-btn>
+            </v-card-title>
+            <v-divider></v-divider>
+            <v-card-text>
+              <div v-if="statsLoading">
+                <v-progress-linear indeterminate></v-progress-linear>
+              </div>
+              <div v-else-if="chartOptions">
+                <apexchart type="bar" :options="chartOptions" :series="chartSeries" height="350"></apexchart>
+              </div>
+              <div v-else>No stats available.</div>
+            </v-card-text>
+          </v-card>
+        </v-dialog>
+
+        <!-- Book Form Dialog -->
+        <v-dialog v-model="formDialog" max-width="700px" light persistent>
+          <v-card class="pa-4" elevation="12" light>
+            <v-card-title>
+              <span class="text-h6">{{ form.id ? 'Edit Book' : 'Add Book' }}</span>
+              <v-spacer></v-spacer>
+              <v-btn icon @click="closeForm"><v-icon>mdi-close</v-icon></v-btn>
+            </v-card-title>
+            <v-card-text>
+              <v-form ref="bookForm" lazy-validation>
+                <v-container>
+                  <v-row>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="form.title" label="Title" :rules="[rules.required]" required></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="form.author" label="Author" :rules="[rules.required]" required></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-text-field v-model="form.genre" label="Genre"></v-text-field>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-menu
+                        ref="menu"
+                        v-model="menu"
+                        :close-on-content-click="false"
+                        transition="scale-transition"
+                        offset-y
+                        min-width="auto"
+                      >
+                        <template v-slot:activator="{ on, attrs }">
+                          <v-text-field
+                            v-model="dateInput"
+                            label="Published Date"
+                            readonly
+                            v-bind="attrs"
+                            v-on="on"
+                          ></v-text-field>
+                        </template>
+                        <v-date-picker v-model="dateInput" @input="menu=false"></v-date-picker>
+                      </v-menu>
+                    </v-col>
+                    <v-col cols="12" md="6">
+                      <v-text-field
+                        v-model.number="form.rating"
+                        label="Rating (1-5)"
+                        type="number"
+                        :rules="[rules.rating]"
+                        min="1" max="5"
+                      ></v-text-field>
+                    </v-col>
+                  </v-row>
+                </v-container>
+              </v-form>
+              <v-alert type="error" v-if="formError" dense outlined class="mt-2">{{ formError }}</v-alert>
+            </v-card-text>
+            <v-card-actions>
+              <v-spacer></v-spacer>
+              <v-btn color="primary" @click="save" :loading="formSaving">{{ form.id ? 'Save' : 'Create' }}</v-btn>
+              <v-btn text @click="closeForm">Cancel</v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+
+      </v-container>
+    </v-main>
+  </v-app>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="https://cdn.jsdelivr.net/npm/vue-apexcharts@1.6.2/dist/vue-apexcharts.min.js"></script>
+
+<script>
+  
+const API_BASE = 'https://localhost:5001';
+
+Vue.component('apexchart', VueApexCharts);
+
+new Vue({
+  el: '#app',
+  vuetify: new Vuetify({
+    theme: {
+      dark: true,
+      themes: {
+        dark: {
+          background: '#5c5c5c',  // slightly lighter dark gray
+          surface: '#ffffff',     // cards remain white
+        },
+      },
+    },
+  }),
+  data() {
+    return {
+      view: 'list',
+      books: [],
+      loading: false,
+      globalError: null,
+      filter: '',
+      formDialog: false,
+      form: { id:null, title:'', author:'', genre:'', publishedDate:null, rating:3 },
+      dateInput: '',
+      menu: false,
+      formError: null,
+      formSaving: false,
+      showStats: false,
+      statsLoading: false,
+      chartOptions: null,
+      chartSeries: [],
+      rules: {
+        required: v => !!(v && String(v).trim()) || 'Required',
+        rating: v => (v>=1 && v<=5) || 'Rating must be 1-5'
+      }
+    };
+  },
+  computed: {
+    filteredBooks() {
+      if (!Array.isArray(this.books)) return [];
+      const filtered = this.books.filter(b => !!b); // Remove null/undefined
+      if (!this.filter) return filtered;
+      const q = this.filter.toLowerCase();
+      console.log(filtered.filter(b =>
+        (b.title && b.title.toLowerCase().includes(q)) ||
+        (b.author && b.author.toLowerCase().includes(q)) ||
+        (b.genre && b.genre.toLowerCase().includes(q))
+      ))
+      return filtered.filter(b =>
+        (b.title && b.title.toLowerCase().includes(q)) ||
+        (b.author && b.author.toLowerCase().includes(q)) ||
+        (b.genre && b.genre.toLowerCase().includes(q))
+      );
+    }
+  },
+  async mounted() {
+    axios.defaults.baseURL = API_BASE + '/api';
+    await this.fetchBooks();
+  },
+  watch: {
+    dateInput(val) { this.form.publishedDate = val ? new Date(val).toISOString() : null; },
+    showStats(val) { if(val) this.loadStats(); }
+  },
+  methods: {
+    formatDate(d){ return d?new Date(d).toLocaleDateString():'-'; },
+    async fetchBooks() {
+      this.loading = true; this.globalError = null;
+      try {
+        const res = await axios.get('/books');
+        console.log(res);
+        this.books = Array.isArray(res.data) ? res.data.filter(b => !!b) : [];
+        console.log(this.books);
+      } catch(err) {
+        console.error(err);
+        this.globalError = 'Failed to fetch books. Check backend and CORS.';
+        this.books = [];
+      } finally { this.loading = false; }
+    },
+    openForm(book) {
+      this.formError = null;
+      if(book) {
+        this.form = Object.assign({}, book);
+        this.dateInput = book.publishedDate ? new Date(book.publishedDate).toISOString().split('T')[0] : '';
+      } else {
+        this.form = { id:null, title:'', author:'', genre:'', publishedDate:null, rating:3 };
+        this.dateInput = '';
+      }
+      this.formDialog = true;
+    },
+    closeForm(){ this.formDialog = false; this.formError = null; },
+    async save() {
+      this.formError = null;
+      if(!this.form.title || !String(this.form.title).trim()){ this.formError='Title required'; return; }
+      if(!this.form.author || !String(this.form.author).trim()){ this.formError='Author required'; return; }
+      if(this.form.rating < 1 || this.form.rating > 5){ this.formError='Rating 1-5'; return; }
+      // Ensure publishedDate is an ISO string or null
+      if (this.dateInput) {
+        const d = new Date(this.dateInput);
+        this.form.publishedDate = isNaN(d) ? null : d.toISOString();
+      } else {
+        this.form.publishedDate = null;
+      }
+      this.formSaving = true;
+      try {
+        let payload = { ...this.form };
+        // Remove id if creating a new book
+        if (!payload.id) delete payload.id;
+        if(this.form.id) await axios.put(`/books/${this.form.id}`, payload);
+        else await axios.post('/books', payload);
+        await this.fetchBooks();
+        this.formDialog = false;
+      } catch(err){ console.error(err); this.formError='Save failed'; }
+      finally { this.formSaving = false; }
+    },
+    confirmDelete(id){ if(confirm('Delete this book?')) this.deleteBook(id); },
+    async deleteBook(id){ try { await axios.delete(`/books/${id}`); await this.fetchBooks(); } catch(err){ console.error(err); alert('Delete failed'); } },
+    async loadStats() {
+      this.statsLoading = true;
+      try {
+        const res = await axios.get('/books/stats');
+        const labels = res.data.map(s=>s.genre);
+        const counts = res.data.map(s=>s.count);
+        this.chartOptions = { chart:{id:'books-per-genre'}, xaxis:{categories:labels}, plotOptions:{bar:{horizontal:false}}, dataLabels:{enabled:false} };
+        this.chartSeries = [{ name:'Books', data:counts }];
+      } catch(err){ console.error(err); this.globalError='Failed to load stats'; }
+      finally { this.statsLoading = false; }
+    }
+  }
+});
+</script>
+</body>
+</html>
